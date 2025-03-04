@@ -3,6 +3,10 @@ name: build
 on:
   pull_request:
     types: [opened, labeled, unlabeled, synchronize]
+
+env:
+  GO_VERSION: 1.23
+
 jobs:
   image:
     runs-on: ubuntu-latest
@@ -11,7 +15,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.23'
+        go-version: ${{ env.GO_VERSION }}
     - name: image
       uses: redhat-actions/buildah-build@v2
       id: build-image

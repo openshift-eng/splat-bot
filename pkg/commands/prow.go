@@ -187,7 +187,7 @@ func createProwGraph(platform string) (string, error) {
 		for _, j := range periodicJobs {
 			versionRegex := re.FindStringSubmatch(j.Spec.Job)
 
-			if versionRegex == nil || len(versionRegex) < 1 {
+			if len(versionRegex) < 1 {
 				continue
 			}
 			ocpVersion := versionRegex[0]
