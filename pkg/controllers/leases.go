@@ -399,49 +399,56 @@ func getLeaseExpiration(lease *v1.Lease) time.Time {
 }
 
 func (l *LeaseReconciler) userLeasePruner(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Minute)
+    done := make(chan bool)
+
 	go func() {
 		for {
-			var pruneLeaseList []*v1.Lease
-			var err error
-			currentTime := time.Now()
-
-			log.Println("checking for expired user or nearly expired user leases")
-			leaseMu.Lock()
-			for _, lease := range leases {
-				if lease.Annotations == nil || lease.DeletionTimestamp != nil {
-					continue
-				}
-				if _, exists := lease.Annotations[SplatBotLeaseOwner]; !exists {
-					continue
-				}
-				if val, exists := lease.Annotations[LeaseDisablePruningLabel]; exists {
-					if val == "true" {
-						log.Printf("pruning of lease %s is disabled.", lease.Name)
+			select {
+			case <-done:
+				return
+			case t := <-ticker.C:
+				var pruneLeaseList []*v1.Lease
+				var err error
+				currentTime := time.Now()
+	
+				log.Println("checking for expired user or nearly expired user leases")
+				leaseMu.Lock()
+				for _, lease := range leases {
+					if lease.Annotations == nil || lease.DeletionTimestamp != nil {
 						continue
 					}
-				}
-				expiresAt := getLeaseExpiration(lease)
-				if currentTime.After(expiresAt) {
-					log.Printf("lease %q expired", lease.Name)
-					pruneLeaseList = append(pruneLeaseList, lease)
-				}
-				if currentTime.After(expiresAt.Add(-1 * time.Hour)) {
-					err = l.userReconciler.sendUserMessage(l.userReconciler.client, lease, fmt.Sprintf("your lease will expire at %s. you can renew your lease up to 3 times with `ci lease renew`.", getLeaseExpiration(lease)))
-					if err != nil {
-						log.Printf("failed to send user lease expiration warning: %v", err)
+					if _, exists := lease.Annotations[SplatBotLeaseOwner]; !exists {
+						continue
+					}
+					if val, exists := lease.Annotations[LeaseDisablePruningLabel]; exists {
+						if val == "true" {
+							log.Printf("pruning of lease %s is disabled.", lease.Name)
+							continue
+						}
+					}
+					expiresAt := getLeaseExpiration(lease)
+					if currentTime.After(expiresAt) {
+						log.Printf("lease %q expired", lease.Name)
+						pruneLeaseList = append(pruneLeaseList, lease)
+					}
+					if currentTime.After(expiresAt.Add(-1 * time.Hour)) {
+						err = l.userReconciler.sendUserMessage(l.userReconciler.client, lease, fmt.Sprintf("your lease will expire at %s. you can renew your lease up to 3 times with `ci lease renew`.", getLeaseExpiration(lease)))
+						if err != nil {
+							log.Printf("failed to send user lease expiration warning: %v", err)
+						}
 					}
 				}
-			}
-			leaseMu.Unlock()
-			for _, lease := range pruneLeaseList {
-				log.Printf("pruning lease %q", lease.Name)
-				err = l.Delete(ctx, lease)
-				if err != nil {
-					log.Printf("failed to delete lease %q: %v", lease.Name, err)
+				leaseMu.Unlock()
+				for _, lease := range pruneLeaseList {
+					log.Printf("pruning lease %q", lease.Name)
+					err = l.Delete(ctx, lease)
+					if err != nil {
+						log.Printf("failed to delete lease %q: %v", lease.Name, err)
+					}
 				}
+				log.Printf("user lease pruner sleeping for 30 minutes")					
 			}
-			log.Printf("user lease pruner sleeping for 30 minutes")
-			time.Sleep(30 * time.Minute)
 		}
 	}()
 }
