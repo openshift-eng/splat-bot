@@ -187,7 +187,8 @@ func (l *UserReconciler) sendLeaseDetails(ctx context.Context, client util.Slack
 	}
 
 	content := fmt.Sprintf(`Your lease has been fulfilled. You have been allocated %d vCPUs with %dGB of RAM. You are only guaranteed to have access to the resources and vSphere mentioned below. Do not use more resource than you have been allocated. 
-\n__WARNING: If leases are found to be using more cores/memory than they request, they are subject to automatic deprovisioning.__\n
+
+WARNING: If leases are found to be using more cores/memory than they request, they are subject to automatic deprovisioning.
 
 This lease will expire at %s. You may renew this lease up to three times with "ci lease renew".  route53 records have been pre-created for you.
 
