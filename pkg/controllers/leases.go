@@ -400,18 +400,18 @@ func getLeaseExpiration(lease *v1.Lease) time.Time {
 
 func (l *LeaseReconciler) userLeasePruner(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Minute)
-    done := make(chan bool)
+	done := make(chan bool)
 
 	go func() {
 		for {
 			select {
 			case <-done:
 				return
-			case t := <-ticker.C:
+			case <-ticker.C:
 				var pruneLeaseList []*v1.Lease
 				var err error
 				currentTime := time.Now()
-	
+
 				log.Println("checking for expired user or nearly expired user leases")
 				leaseMu.Lock()
 				for _, lease := range leases {
@@ -447,7 +447,7 @@ func (l *LeaseReconciler) userLeasePruner(ctx context.Context) {
 						log.Printf("failed to delete lease %q: %v", lease.Name, err)
 					}
 				}
-				log.Printf("user lease pruner sleeping for 30 minutes")					
+				log.Printf("user lease pruner sleeping for 30 minutes")
 			}
 		}
 	}()
