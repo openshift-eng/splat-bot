@@ -22,6 +22,8 @@ var (
 	attributes         = []data.Attributes{}
 	allowedUsers       = map[string]bool{}
 	enableChatResponse = false
+	slashMu            sync.Mutex
+	slashCommands      = []data.SlashCommand{}
 )
 
 // AddCommand adds a handler to the list of handlers. Matching of the message can be overriden
@@ -38,6 +40,14 @@ func AddCommand(attribute data.Attributes, handler ...data.MessageOfInterest) {
 	attributes = append(attributes, attribute)
 }
 
+// AddSlashCommand adds a handler to the list of handlers.
+func AddSlashCommand(slashCmd data.SlashCommand) {
+	slashMu.Lock()
+	defer slashMu.Unlock()
+	log.Printf("adding slash command: %v", slashCmd.Commands)
+	slashCommands = append(slashCommands, slashCmd)
+}
+
 func getAttributes() []data.Attributes {
 	attributeMu.Lock()
 	defer attributeMu.Unlock()
@@ -46,6 +56,16 @@ func getAttributes() []data.Attributes {
 
 	copy(newAttributes, attributes)
 	return newAttributes
+}
+
+func getSlashCommands() []data.SlashCommand {
+	slashMu.Lock()
+	defer slashMu.Unlock()
+
+	newCommands := make([]data.SlashCommand, len(slashCommands))
+
+	copy(newCommands, slashCommands)
+	return newCommands
 }
 
 func init() {
@@ -58,6 +78,8 @@ func init() {
 	AddCommand(ProwAttributes)
 	AddCommand(ProwGraphAttributes)
 	AddCommand(CreateJiraWithThreadAttributes)
+
+	AddSlashCommand(JiraCreateSlashCommand)
 }
 
 func Initialize() error {
@@ -106,7 +128,10 @@ func tokenize(msgText string, glob bool) []string {
 }
 
 func getDMChannelID(client util.SlackClientInterface, evt *slackevents.MessageEvent) (string, error) {
-	user := evt.User
+	return getDMChannelIDByUser(client, evt.User)
+}
+
+func getDMChannelIDByUser(client util.SlackClientInterface, user string) (string, error) {
 	channel, _, _, err := client.OpenConversation(&slack.OpenConversationParameters{
 		Users: []string{user},
 	})
@@ -115,6 +140,67 @@ func getDMChannelID(client util.SlackClientInterface, evt *slackevents.MessageEv
 	}
 
 	return channel.Latest.Channel, nil
+}
+
+func SlashHandler(ctx context.Context, client util.SlackClientInterface, cmd slack.SlashCommand) error {
+	log.Debugf("Looking for command to handle %v", cmd.Command)
+	for _, command := range getSlashCommands() {
+		args := tokenize(cmd.Text, !command.DontGlobQuotes)
+		if checkForSlashCommand(cmd.Command, command) {
+			log.Debugf("Found command: %v", command.Commands)
+
+			_, err := command.ProcessCommand(ctx, client, cmd, args)
+			if err != nil {
+				log.Warnf("failed processing message: %v", err)
+			}
+		}
+	}
+	return nil
+}
+
+func ViewSubmissionHandler(ctx context.Context, client util.SlackClientInterface, evt slack.InteractionCallback) error {
+	// For now, only SlashCommands are handling view submissions
+	for _, command := range getSlashCommands() {
+		log.Debugf("Checking command: %v", command.Commands)
+		check := command.ViewSubmissionCheck
+		if check != nil && check(evt.View.CallbackID) {
+			log.Debugf("Found command: %v", command.Commands)
+			response, err := command.HandleViewSubmission(ctx, client, evt)
+			if err != nil {
+				log.Warnf("failed processing message: %v", err)
+			}
+
+			// This block should be moved into a function and shared w/ other workflows
+			if len(response) > 0 {
+				log.Debugf("responding to message: %v", response)
+
+				// channelID is set in private metadata in the view
+				channelID := evt.View.PrivateMetadata
+				userID := evt.User.ID
+
+				if command.RespondInDM {
+					channelID, err = getDMChannelIDByUser(client, evt.User.ID)
+					if err != nil {
+						log.Warnf("failed getting channel ID: %v", err)
+					}
+				}
+
+				log.Printf("responding to message in channel: %s", channelID)
+				if command.ResponseIsEphemeral {
+					_, err = client.PostEphemeral(channelID, userID, response...)
+				} else {
+					_, _, err = client.PostMessage(channelID, response...)
+				}
+				if err != nil {
+					return fmt.Errorf("failed responding to message: %v", err)
+				}
+				return nil
+			}
+
+			break
+		}
+	}
+	return nil
 }
 
 func Handler(ctx context.Context, client util.SlackClientInterface, evt slackevents.EventsAPIEvent) error {
@@ -291,6 +377,17 @@ func checkForCommand(args []string, attribute data.Attributes, channel string) b
 	match := true
 	for index, command := range attribute.Commands {
 		if command != args[index] {
+			match = false
+			break
+		}
+	}
+	return match
+}
+
+func checkForSlashCommand(cmdVal string, command data.SlashCommand) bool {
+	match := true
+	for _, curCommand := range command.Commands {
+		if curCommand != cmdVal {
 			match = false
 			break
 		}

@@ -1,6 +1,7 @@
 package util
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/slack-go/slack"
@@ -20,6 +21,7 @@ type SlackClientInterface interface {
 	OpenConversation(params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
 	GetConversationReplies(params *slack.GetConversationRepliesParameters) (msgs []slack.Message, hasMore bool, nextCursor string, err error)
 	GetConversationInfo(input *slack.GetConversationInfoInput) (*slack.Channel, error)
+	OpenViewContext(ctx context.Context, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error)
 }
 
 type StubInterface struct {
@@ -50,4 +52,8 @@ func (s *StubInterface) GetConversationInfo(input *slack.GetConversationInfoInpu
 		}, nil
 	}
 	return nil, fmt.Errorf("GetConversationInfo")
+}
+
+func (s *StubInterface) OpenViewContext(ctx context.Context, triggerID string, view slack.ModalViewRequest) (*slack.ViewResponse, error) {
+	return nil, fmt.Errorf("OpenViewContext")
 }
